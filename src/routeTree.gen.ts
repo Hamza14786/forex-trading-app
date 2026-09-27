@@ -18,6 +18,8 @@ import { Route as AuthenticatedAssetsRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedChatRouteImport } from './routes/_authenticated/chat'
 import { Route as AuthenticatedFuturesRouteImport } from './routes/_authenticated/futures'
 import { Route as AuthenticatedSpotRouteImport } from './routes/_authenticated/spot'
+import { Route as AuthenticatedTransferRouteImport } from './routes/_authenticated/transfer'
+import { Route as AuthenticatedWithdrawRouteImport } from './routes/_authenticated/withdraw'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AuthenticatedAboutDocRouteImport } from './routes/_authenticated/about.$doc'
 
@@ -65,6 +67,16 @@ const AuthenticatedSpotRoute = AuthenticatedSpotRouteImport.update({
   path: '/spot',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTransferRoute = AuthenticatedTransferRouteImport.update({
+  id: '/transfer',
+  path: '/transfer',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedWithdrawRoute = AuthenticatedWithdrawRouteImport.update({
+  id: '/withdraw',
+  path: '/withdraw',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/admin/login',
   path: '/admin/login',
@@ -85,6 +97,8 @@ export interface FileRoutesByFullPath {
   '/chat': typeof AuthenticatedChatRoute
   '/futures': typeof AuthenticatedFuturesRoute
   '/spot': typeof AuthenticatedSpotRoute
+  '/transfer': typeof AuthenticatedTransferRoute
+  '/withdraw': typeof AuthenticatedWithdrawRoute
   '/admin/login': typeof AdminLoginRoute
   '/about/$doc': typeof AuthenticatedAboutDocRoute
 }
@@ -96,6 +110,8 @@ export interface FileRoutesByTo {
   '/chat': typeof AuthenticatedChatRoute
   '/futures': typeof AuthenticatedFuturesRoute
   '/spot': typeof AuthenticatedSpotRoute
+  '/transfer': typeof AuthenticatedTransferRoute
+  '/withdraw': typeof AuthenticatedWithdrawRoute
   '/admin/login': typeof AdminLoginRoute
   '/': typeof AuthenticatedIndexRoute
   '/about/$doc': typeof AuthenticatedAboutDocRoute
@@ -110,6 +126,8 @@ export interface FileRoutesById {
   '/_authenticated/chat': typeof AuthenticatedChatRoute
   '/_authenticated/futures': typeof AuthenticatedFuturesRoute
   '/_authenticated/spot': typeof AuthenticatedSpotRoute
+  '/_authenticated/transfer': typeof AuthenticatedTransferRoute
+  '/_authenticated/withdraw': typeof AuthenticatedWithdrawRoute
   '/admin/login': typeof AdminLoginRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/about/$doc': typeof AuthenticatedAboutDocRoute
@@ -125,6 +143,8 @@ export interface FileRouteTypes {
     | '/chat'
     | '/futures'
     | '/spot'
+    | '/transfer'
+    | '/withdraw'
     | '/admin/login'
     | '/about/$doc'
   fileRoutesByTo: FileRoutesByTo
@@ -136,6 +156,8 @@ export interface FileRouteTypes {
     | '/chat'
     | '/futures'
     | '/spot'
+    | '/transfer'
+    | '/withdraw'
     | '/admin/login'
     | '/'
     | '/about/$doc'
@@ -149,6 +171,8 @@ export interface FileRouteTypes {
     | '/_authenticated/chat'
     | '/_authenticated/futures'
     | '/_authenticated/spot'
+    | '/_authenticated/transfer'
+    | '/_authenticated/withdraw'
     | '/admin/login'
     | '/_authenticated/'
     | '/_authenticated/about/$doc'
@@ -225,6 +249,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSpotRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/transfer': {
+      id: '/_authenticated/transfer'
+      path: '/transfer'
+      fullPath: '/transfer'
+      preLoaderRoute: typeof AuthenticatedTransferRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/withdraw': {
+      id: '/_authenticated/withdraw'
+      path: '/withdraw'
+      fullPath: '/withdraw'
+      preLoaderRoute: typeof AuthenticatedWithdrawRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/admin/login': {
       id: '/admin/login'
       path: '/admin/login'
@@ -260,6 +298,8 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatRoute: typeof AuthenticatedChatRoute
   AuthenticatedFuturesRoute: typeof AuthenticatedFuturesRoute
   AuthenticatedSpotRoute: typeof AuthenticatedSpotRoute
+  AuthenticatedTransferRoute: typeof AuthenticatedTransferRoute
+  AuthenticatedWithdrawRoute: typeof AuthenticatedWithdrawRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
@@ -270,6 +310,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatRoute: AuthenticatedChatRoute,
   AuthenticatedFuturesRoute: AuthenticatedFuturesRoute,
   AuthenticatedSpotRoute: AuthenticatedSpotRoute,
+  AuthenticatedTransferRoute: AuthenticatedTransferRoute,
+  AuthenticatedWithdrawRoute: AuthenticatedWithdrawRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 

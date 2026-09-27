@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, LogOut, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useMarket, fmt } from "@/lib/market";
@@ -10,27 +10,16 @@ import { supabase } from "@/integrations/supabase/client";
 export const Route = createFileRoute("/_authenticated/assets")({
   head: () => ({
     meta: [
-      { title: "Assets — Polyygony" },
+      { title: "Assets — Polygon" },
       { name: "description", content: "Review funding and futures balances, freeze amounts and USD value." },
-      { property: "og:title", content: "Assets — Polyygony" },
+      { property: "og:title", content: "Assets — Polygon" },
       { property: "og:description", content: "Funding and futures balances in one place." },
     ],
   }),
   component: AssetsPage,
 });
 
-const DEMO_BALANCES: Record<string, { available: number; freeze: number }> = {
-  USDT: { available: 12500, freeze: 320.5 },
-  BTC: { available: 0.0642, freeze: 0 },
-  ETH: { available: 1.284, freeze: 0.05 },
-  XAUT: { available: 0.31, freeze: 0 },
-  BCH: { available: 0, freeze: 0 },
-  LTC: { available: 4.2, freeze: 0 },
-  ADA: { available: 0, freeze: 0 },
-  TRX: { available: 1500, freeze: 0 },
-  LINK: { available: 0, freeze: 0 },
-  EOS: { available: 0, freeze: 0 },
-};
+const ASSETS = ["USDT", "BTC", "ETH", "XAUT", "BCH", "LTC", "ADA", "TRX", "LINK", "EOS"];
 
 function AssetsPage() {
   const navigate = useNavigate();
@@ -39,16 +28,46 @@ function AssetsPage() {
   const [query, setQuery] = useState("");
   const [hideZero, setHideZero] = useState(false);
   const [visible, setVisible] = useState(true);
+  const [usdtBalance, setUsdtBalance] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let balanceChannel: ReturnType<typeof supabase.channel> | undefined;
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      const { data: balance } = await supabase
+        .from("user_balances")
+        .select("usdt")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+      if (active) setUsdtBalance(balance?.usdt ?? 0);
+      balanceChannel = supabase
+        .channel(`member-balance-${data.user.id}`)
+        .on("postgres_changes", {
+          event: "UPDATE",
+          schema: "public",
+          table: "user_balances",
+          filter: `user_id=eq.${data.user.id}`,
+        }, (payload) => {
+          setUsdtBalance(Number((payload.new as { usdt: number }).usdt) || 0);
+        })
+        .subscribe();
+    });
+    return () => {
+      active = false;
+      if (balanceChannel) void supabase.removeChannel(balanceChannel);
+    };
+  }, []);
 
   const rows = useMemo(() => {
     const factor = wallet === "Funding" ? 1 : 0.11;
-    return Object.entries(DEMO_BALANCES).map(([code, bal]) => {
+    return ASSETS.map((code) => {
       const price = code === "USDT" ? 1 : (tickers[`${code}/USDT`]?.price ?? 0);
-      const available = bal.available * factor;
-      const freeze = bal.freeze * factor;
+      const available = code === "USDT" ? usdtBalance * factor : 0;
+      const freeze = 0;
       return { code, available, freeze, usd: (available + freeze) * price };
     });
-  }, [tickers, wallet]);
+  }, [tickers, wallet, usdtBalance]);
 
   const filtered = rows
     .filter((r) => r.code.toLowerCase().includes(query.toLowerCase()))
@@ -95,13 +114,13 @@ function AssetsPage() {
         <p className="num mt-1 text-2xl font-semibold">{visible ? fmt(totalUsd, 4) : "••••••"}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <button
-            onClick={() => toast.info("Withdrawals are disabled in this demo.")}
+            onClick={() => navigate({ to: "/withdraw" })}
             className="rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground"
           >
             Withdraw
           </button>
           <button
-            onClick={() => toast.info("Transfers are simulated in this demo.")}
+            onClick={() => navigate({ to: "/transfer" })}
             className="rounded-lg bg-secondary py-2.5 text-sm font-semibold"
           >
             Transfer

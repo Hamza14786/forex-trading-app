@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useMarket, fmt } from "@/lib/market";
 import { OrderBook } from "@/components/OrderBook";
 import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/spot")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -12,9 +13,9 @@ export const Route = createFileRoute("/_authenticated/spot")({
   }),
   head: () => ({
     meta: [
-      { title: "Spot trading — Polyygony" },
+      { title: "Spot trading — Polygon" },
       { name: "description", content: "Place simulated spot market orders with a live order book." },
-      { property: "og:title", content: "Spot trading — Polyygony" },
+      { property: "og:title", content: "Spot trading — Polygon" },
       { property: "og:description", content: "Simulated spot order entry and live market depth." },
     ],
   }),
@@ -30,9 +31,38 @@ function SpotPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Transaction");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [percent, setPercent] = useState(0);
+  const [balance, setBalance] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let balanceChannel: ReturnType<typeof supabase.channel> | undefined;
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      const { data: wallet } = await supabase
+        .from("user_balances")
+        .select("usdt")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+      if (active) setBalance(wallet?.usdt ?? 0);
+      balanceChannel = supabase
+        .channel(`spot-balance-${data.user.id}`)
+        .on("postgres_changes", {
+          event: "UPDATE",
+          schema: "public",
+          table: "user_balances",
+          filter: `user_id=eq.${data.user.id}`,
+        }, (payload) => {
+          setBalance(Number((payload.new as { usdt: number }).usdt) || 0);
+        })
+        .subscribe();
+    });
+    return () => {
+      active = false;
+      if (balanceChannel) void supabase.removeChannel(balanceChannel);
+    };
+  }, []);
 
   const ticker = tickers[symbol] ?? tickers["ETH/USDT"]!;
-  const balance = 12500.0;
   const total = useMemo(() => (balance * percent) / 100, [percent]);
   const qty = ticker ? total / ticker.price : 0;
   const step = Math.max(ticker.price * 0.0002, 10 ** -ticker.decimals);

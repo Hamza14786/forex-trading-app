@@ -3,16 +3,15 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * Members sign in with a phone number only. Supabase credentials require an
- * email, so we derive a deterministic synthetic address from the normalized
- * phone number. Email-based password reset is therefore not available.
+ * Members enter a phone number, which is mapped to a deterministic email for
+ * Supabase email/password authentication. Email reset is not available.
  */
 export function normalizePhone(input: string) {
   return input.replace(/[^0-9]/g, "");
 }
 
 export function phoneToEmail(phone: string) {
-  return `user-${normalizePhone(phone)}@members.novaterminal.app`;
+  return `user-${normalizePhone(phone)}@members.forex-trading221.lovable.app`;
 }
 
 export function useSession() {

@@ -2,9 +2,9 @@ export const DOCS: Record<string, { title: string; body: string[] }> = {
   "user-agreement": {
     title: "User Agreement",
     body: [
-      "By creating a Polyygony account you agree to use the platform for lawful purposes only and to keep your login credentials confidential.",
+      "By creating a Polygon account you agree to use the platform for lawful purposes only and to keep your login credentials confidential.",
       "This deployment is a demonstration environment. All market prices, balances, orders and positions are simulated. No real funds are held, transferred or traded.",
-      "You are responsible for all activity carried out under your account. Polyygony may suspend accounts that show signs of abuse or automated misuse.",
+      "You are responsible for all activity carried out under your account. Polygon may suspend accounts that show signs of abuse or automated misuse.",
     ],
   },
   "privacy-policy": {
@@ -20,13 +20,13 @@ export const DOCS: Record<string, { title: string; body: string[] }> = {
     body: [
       "Nothing on this platform constitutes financial advice. Simulated market data is generated for demonstration purposes and does not reflect real market conditions.",
       "Trading leveraged products carries significant risk. In a production deployment you should only trade with capital you can afford to lose.",
-      "Polyygony is a product name used for this demonstration build and is not affiliated with any existing exchange.",
+      "Polygon is a product name used for this demonstration build and is not affiliated with any existing exchange.",
     ],
   },
   "about-us": {
     title: "About Us",
     body: [
-      "Polyygony is a mobile-first trading interface covering spot and futures markets with a live order book and a built-in support desk.",
+      "Polygon is a mobile-first trading interface covering spot and futures markets with a live order book and a built-in support desk.",
       "The interface is designed for fast decision making: market shortcuts, highlighted pairs and a persistent bottom navigation across Home, Spot, Futures and Assets.",
       "Market data in this build is simulated. The structure allows a real market-data provider to be connected later without changing the interface.",
     ],

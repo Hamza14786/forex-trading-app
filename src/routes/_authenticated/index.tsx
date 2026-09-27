@@ -12,9 +12,9 @@ import banner2 from "@/assets/banner-2.jpg";
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
-      { title: "Markets — Polyygony" },
-      { name: "description", content: "Live simulated crypto markets, promotions and support on Polyygony." },
-      { property: "og:title", content: "Markets — Polyygony" },
+      { title: "Markets — Polygon" },
+      { name: "description", content: "Live simulated crypto markets, promotions and support on Polygon." },
+      { property: "og:title", content: "Markets — Polygon" },
       { property: "og:description", content: "Live simulated crypto markets and trading shortcuts." },
     ],
   }),
@@ -27,6 +27,7 @@ function HomePage() {
   const { list } = useMarket();
   const [slide, setSlide] = useState(0);
   const [account, setAccount] = useState("");
+  const [unreadSupportMessages, setUnreadSupportMessages] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => setSlide((s) => (s + 1) % banners.length), 5000);
@@ -34,15 +35,34 @@ function HomePage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let conversationChannel: ReturnType<typeof supabase.channel> | undefined;
     supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("phone")
-        .eq("id", data.user.id)
-        .maybeSingle();
+      const [{ data: profile }, { data: conversation }] = await Promise.all([
+        supabase.from("profiles").select("phone").eq("id", data.user.id).maybeSingle(),
+        supabase.from("conversations").select("unread_for_user").eq("user_id", data.user.id).maybeSingle(),
+      ]);
+      if (!active) return;
       setAccount(profile?.phone ?? data.user.email?.split("@")[0] ?? "");
+      setUnreadSupportMessages(conversation?.unread_for_user ?? 0);
+      conversationChannel = supabase
+        .channel(`member-support-unread-${data.user.id}`)
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "conversations",
+          filter: `user_id=eq.${data.user.id}`,
+        }, (payload) => {
+          const row = payload.new as { unread_for_user?: number };
+          setUnreadSupportMessages(row.unread_for_user ?? 0);
+        })
+        .subscribe();
     });
+    return () => {
+      active = false;
+      if (conversationChannel) void supabase.removeChannel(conversationChannel);
+    };
   }, []);
 
   const featured = list.slice(0, 3);
@@ -98,7 +118,12 @@ function HomePage() {
       <div className="mt-4 grid grid-cols-3 gap-3 px-4">
         <Shortcut to="/about" icon={<Gift className="size-5" />} label="Promotion" />
         <Shortcut to="/about" icon={<HelpCircle className="size-5" />} label="About us" />
-        <Shortcut to="/chat" icon={<Headphones className="size-5" />} label="Live chat" />
+        <Shortcut
+          to="/chat"
+          icon={<Headphones className="size-5" />}
+          label="Live chat"
+          unreadCount={unreadSupportMessages}
+        />
       </div>
 
       <section className="mt-4 space-y-2 px-4">
@@ -145,13 +170,20 @@ function HomePage() {
   );
 }
 
-function Shortcut({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+function Shortcut({ to, icon, label, unreadCount = 0 }: { to: string; icon: React.ReactNode; label: string; unreadCount?: number }) {
   return (
     <Link
       to={to}
       className="surface flex flex-col items-center gap-2 py-4 text-xs text-muted-foreground transition-colors hover:bg-elevated hover:text-foreground"
     >
-      <span className="text-primary">{icon}</span>
+      <span className="relative text-primary">
+        {icon}
+        {unreadCount > 0 && (
+          <span className="absolute -right-3 -top-2 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 py-0.5 text-[9px] font-bold text-destructive-foreground">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </span>
       {label}
     </Link>
   );

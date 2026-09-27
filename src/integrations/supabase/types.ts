@@ -85,18 +85,21 @@ export type Database = {
           display_name: string | null
           id: string
           phone: string
+          serial_num: string | null
         }
         Insert: {
           created_at?: string
           display_name?: string | null
           id: string
           phone: string
+          serial_num?: string | null
         }
         Update: {
           created_at?: string
           display_name?: string | null
           id?: string
           phone?: string
+          serial_num?: string | null
         }
         Relationships: []
       }
@@ -118,6 +121,12 @@ export type Database = {
         }
         Relationships: []
       }
+      user_balances: {
+        Row: { updated_at: string; user_id: string; usdt: number }
+        Insert: { updated_at?: string; user_id: string; usdt?: number }
+        Update: { updated_at?: string; user_id?: string; usdt?: number }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -129,6 +138,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      admin_credit_user: {
+        Args: { _amount: number; _user_id: string }
+        Returns: number
       }
     }
     Enums: {

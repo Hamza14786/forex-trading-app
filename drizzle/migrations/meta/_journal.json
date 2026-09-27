@@ -8,6 +8,34 @@
       "when": 1790426983424,
       "tag": "0000_trading_app_core",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790426983425,
+      "tag": "0001_user_balances_and_admin_credit",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790426983426,
+      "tag": "0002_enable_profile_realtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790426983427,
+      "tag": "0003_chat_image_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790426983428,
+      "tag": "0004_chat_image_and_message_delete",
+      "breakpoints": true
     }
   ]
 }

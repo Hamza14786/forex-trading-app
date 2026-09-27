@@ -5,15 +5,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { normalizePhone, phoneToEmail } from "@/lib/auth";
 import { COUNTRY_CALLING_CODES } from "@/lib/country-calling-codes";
 import { Logo } from "@/components/Logo";
+import { ensureOwnMemberRecords } from "@/lib/member-records.functions";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Sign in — Polyygony" },
-      { name: "description", content: "Sign in to Polyygony with your mobile number to trade spot and futures markets." },
-      { property: "og:title", content: "Sign in — Polyygony" },
-      { property: "og:description", content: "Access your Polyygony trading account." },
+      { title: "Sign in — Polygon" },
+      { name: "description", content: "Sign in to Polygon with your mobile number to trade spot and futures markets." },
+      { property: "og:title", content: "Sign in — Polygon" },
+      { property: "og:description", content: "Access your Polygon trading account." },
     ],
   }),
   component: AuthPage,
@@ -22,8 +23,8 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [country, setCountry] = useState("Pakistan");
-  const countryCode = COUNTRY_CALLING_CODES.find(([name]) => name === country)?.[1] ?? "+92";
+  const [country, setCountry] = useState("India");
+  const countryCode = COUNTRY_CALLING_CODES.find(([name]) => name === country)?.[1] ?? "+91";
   const [countryQuery, setCountryQuery] = useState("");
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [phone, setPhone] = useState("");
@@ -67,14 +68,13 @@ function AuthPage() {
     }
     setBusy(true);
     const email = phoneToEmail(fullPhone);
-
     if (mode === "register") {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: window.location.origin,
-          data: { serial_num: serialNum.trim() },
+          data: { serial_num: serialNum.trim(), phone: fullPhone },
         },
       });
       if (signUpError) {
@@ -82,8 +82,24 @@ function AuthPage() {
         setError(signUpError.message);
         return;
       }
-      if (data.user) {
-        await supabase.from("profiles").insert({ id: data.user.id, phone: fullPhone });
+      if (data.user && data.session) {
+        const metadata = data.user.user_metadata;
+        const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name]
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+        try {
+          await ensureOwnMemberRecords({
+            data: {
+              phone: fullPhone,
+              displayName,
+              serialNum: serialNum.trim(),
+              createdAt: data.user.created_at,
+            },
+          });
+        } catch (profileError) {
+          setBusy(false);
+          setError(profileError instanceof Error ? profileError.message : "Could not initialize the new account.");
+          return;
+        }
       }
       if (!data.session) {
         setBusy(false);
@@ -96,13 +112,17 @@ function AuthPage() {
       return;
     }
 
-    const legacyEmails = [`${normalizePhone(fullPhone)}@members.novaterminal.app`];
+    let { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const normalizedFullPhone = normalizePhone(fullPhone);
+    const legacyEmails = [
+      `user-${normalizedFullPhone}@members.novaterminal.app`,
+      `${normalizedFullPhone}@members.novaterminal.app`,
+    ];
     if (countryCode === "+91") {
       // Older Indian accounts omitted the country prefix when they were created.
       legacyEmails.push(`${digits}@members.novaterminal.app`);
+      legacyEmails.push(`user-${digits}@members.novaterminal.app`);
     }
-
-    let { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     for (const legacyEmail of legacyEmails) {
       if (!signInError) break;
       const legacySignIn = await supabase.auth.signInWithPassword({ email: legacyEmail, password });
@@ -112,6 +132,25 @@ function AuthPage() {
     if (signInError) {
       setError("Mobile number or password is incorrect.");
       return;
+    }
+    const { data: currentUser } = await supabase.auth.getUser();
+    if (currentUser.user) {
+      const metadata = currentUser.user.user_metadata;
+      const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name]
+        .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+      try {
+        await ensureOwnMemberRecords({
+          data: {
+            phone: fullPhone,
+            displayName,
+            serialNum: typeof metadata?.serial_num === "string" ? metadata.serial_num : undefined,
+            createdAt: currentUser.user.created_at,
+          },
+        });
+      } catch (profileError) {
+        setError(profileError instanceof Error ? profileError.message : "Could not initialize the account profile.");
+        return;
+      }
     }
     navigate({ to: "/", replace: true });
   }

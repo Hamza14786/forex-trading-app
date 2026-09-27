@@ -7,10 +7,10 @@ import { DOCS } from "@/lib/docs";
 export const Route = createFileRoute("/_authenticated/about")({
   head: () => ({
     meta: [
-      { title: "About us — Polyygony" },
+      { title: "About us — Polygon" },
       { name: "description", content: "User agreement, privacy policy, legal notices and company information." },
-      { property: "og:title", content: "About us — Polyygony" },
-      { property: "og:description", content: "Policies and company information for Polyygony." },
+      { property: "og:title", content: "About us — Polygon" },
+      { property: "og:description", content: "Policies and company information for Polygon." },
     ],
   }),
   component: AboutPage,

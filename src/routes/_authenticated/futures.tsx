@@ -9,9 +9,9 @@ import { ScreenHeader } from "@/components/ScreenHeader";
 export const Route = createFileRoute("/_authenticated/futures")({
   head: () => ({
     meta: [
-      { title: "Futures trading — Polyygony" },
+      { title: "Futures trading — Polygon" },
       { name: "description", content: "Open simulated leveraged positions with live depth and risk metrics." },
-      { property: "og:title", content: "Futures trading — Polyygony" },
+      { property: "og:title", content: "Futures trading — Polygon" },
       { property: "og:description", content: "Leverage, margin and risk rate on simulated futures markets." },
     ],
   }),

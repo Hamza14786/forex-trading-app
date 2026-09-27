@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Polyygony trading interface — dark exchange with red, green and yellow accents.
+ * Polygon trading interface — dark exchange with red, green and yellow accents.
  * All colors are oklch semantic tokens. Never hardcode colors in components.
  */
 

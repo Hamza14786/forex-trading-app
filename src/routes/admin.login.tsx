@@ -8,8 +8,8 @@ export const Route = createFileRoute("/admin/login")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Admin login — Polyygony" },
-      { name: "description", content: "Sign in to the Polyygony admin dashboard." },
+      { title: "Admin login — Polygon" },
+      { name: "description", content: "Sign in to the Polygon admin dashboard." },
     ],
   }),
   component: AdminLoginPage,

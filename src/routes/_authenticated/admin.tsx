@@ -1,14 +1,17 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { LogOut, Send } from "lucide-react";
+import { ImagePlus, LogOut, Send, Trash2 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { setRegisteredUserPassword } from "@/lib/admin-user.functions";
+import { ChatImageSelection, ChatMessageContent, getChatImagePath, getChatMessagePreview, makeChatImageBody, removeChatImage, uploadChatImage } from "@/components/chat/ChatMessageContent";
 
 type ChatMessage = Database["public"]["Tables"]["messages"]["Row"];
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"];
 type AdminThread = Conversation & { phone: string; preview: string };
+type RegisteredUser = Pick<Database["public"]["Tables"]["profiles"]["Row"], "id" | "phone" | "serial_num" | "created_at" | "display_name"> & { usdt: number };
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: async () => {
@@ -23,7 +26,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
   },
   head: () => ({
     meta: [
-      { title: "Admin support — Polyygony" },
+      { title: "Admin support — Polygon" },
       { name: "description", content: "Manage customer support conversations." },
     ],
   }),
@@ -32,16 +35,110 @@ export const Route = createFileRoute("/_authenticated/admin")({
 
 function AdminPage() {
   const navigate = useNavigate();
+  const [activeSection, setActiveSection] = useState<"chat" | "users">("chat");
   const [threads, setThreads] = useState<AdminThread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
+  const [creditAmounts, setCreditAmounts] = useState<Record<string, string>>({});
+  const [creditingUser, setCreditingUser] = useState<string | null>(null);
+  const [newPasswords, setNewPasswords] = useState<Record<string, string>>({});
+  const [passwordConfirmations, setPasswordConfirmations] = useState<Record<string, string>>({});
+  const [passwordResettingUser, setPasswordResettingUser] = useState<string | null>(null);
+  const [userNotice, setUserNotice] = useState<{ text: string; error: boolean } | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const activeSectionRef = useRef<"chat" | "users">("chat");
   const endOfMessages = useRef<HTMLDivElement>(null);
+
+  const loadRegisteredUsers = useCallback(async () => {
+    const profiles: Database["public"]["Tables"]["profiles"]["Row"][] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data: page, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, phone, serial_num, created_at, display_name")
+        .order("created_at", { ascending: false })
+        .range(offset, offset + 499);
+      if (profilesError) {
+        setUserNotice({ text: "Could not load registered users.", error: true });
+        return;
+      }
+      profiles.push(...(page ?? []));
+      if ((page?.length ?? 0) < 500) break;
+    }
+
+    const balances: Database["public"]["Tables"]["user_balances"]["Row"][] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data: page, error: balancesError } = await supabase
+        .from("user_balances")
+        .select("user_id, usdt, updated_at")
+        .range(offset, offset + 499);
+      if (balancesError) {
+        setUserNotice({ text: "Could not load account balances.", error: true });
+        return;
+      }
+      balances.push(...(page ?? []));
+      if ((page?.length ?? 0) < 500) break;
+    }
+    const balanceByUser = new Map(balances.map((balance) => [balance.user_id, balance.usdt]));
+    setRegisteredUsers(profiles.map(({ id, phone, serial_num, created_at, display_name }) => ({
+      id, phone, serial_num, created_at, display_name, usdt: balanceByUser.get(id) ?? 0,
+    })));
+  }, []);
+
+  async function creditUser(userId: string) {
+    const amount = Number(creditAmounts[userId]);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setUserNotice({ text: "Enter an amount greater than zero.", error: true });
+      return;
+    }
+    setCreditingUser(userId);
+    setUserNotice(null);
+    const { data: newBalance, error: creditError } = await supabase.rpc("admin_credit_user", {
+      _user_id: userId,
+      _amount: amount,
+    });
+    if (creditError) {
+      setUserNotice({ text: creditError.message || "Amount could not be credited.", error: true });
+    } else {
+      setRegisteredUsers((users) => users.map((user) => user.id === userId ? { ...user, usdt: newBalance } : user));
+      setCreditAmounts((amounts) => ({ ...amounts, [userId]: "" }));
+      setUserNotice({ text: `Dummy USDT sent. Updated balance: ${newBalance.toLocaleString()} USDT.`, error: false });
+    }
+    setCreditingUser(null);
+  }
+
+  async function resetUserPassword(userId: string) {
+    const newPassword = newPasswords[userId] ?? "";
+    if (newPassword.length < 8 || newPassword.length > 72) {
+      setUserNotice({ text: "Password must be between 8 and 72 characters.", error: true });
+      return;
+    }
+    if (newPassword !== (passwordConfirmations[userId] ?? "")) {
+      setUserNotice({ text: "Password confirmation does not match.", error: true });
+      return;
+    }
+    setPasswordResettingUser(userId);
+    setUserNotice(null);
+    try {
+      await setRegisteredUserPassword({ data: { userId, newPassword } });
+      setNewPasswords((values) => ({ ...values, [userId]: "" }));
+      setPasswordConfirmations((values) => ({ ...values, [userId]: "" }));
+      setUserNotice({ text: "User password updated successfully.", error: false });
+    } catch (resetError) {
+      setUserNotice({
+        text: resetError instanceof Error ? resetError.message : "Password could not be updated. Please try again.",
+        error: true,
+      });
+    } finally {
+      setPasswordResettingUser(null);
+    }
+  }
 
   async function logout() {
     const { error: logoutError } = await supabase.auth.signOut();
@@ -87,7 +184,7 @@ function AdminPage() {
     const previewByConversation = new Map<string, string>();
     for (const message of recentMessages ?? []) {
       if (!previewByConversation.has(message.conversation_id)) {
-        previewByConversation.set(message.conversation_id, message.body);
+        previewByConversation.set(message.conversation_id, getChatMessagePreview(message.body));
       }
     }
 
@@ -106,6 +203,7 @@ function AdminPage() {
 
   useEffect(() => {
     void loadThreads();
+    void loadRegisteredUsers();
     const channel = supabase
       .channel("admin-support-inbox")
       .on(
@@ -113,15 +211,17 @@ function AdminPage() {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const incoming = payload.new as ChatMessage;
+          const isViewingConversation =
+            activeIdRef.current === incoming.conversation_id && activeSectionRef.current === "chat";
           setThreads((current) =>
             current.map((thread) =>
               thread.id === incoming.conversation_id
                 ? {
                     ...thread,
-                    preview: incoming.body,
+                    preview: getChatMessagePreview(incoming.body),
                     last_message_at: incoming.created_at,
                     unread_for_admin:
-                      incoming.sender_role === "user" && activeIdRef.current !== thread.id
+                      incoming.sender_role === "user" && !isViewingConversation
                         ? thread.unread_for_admin + 1
                         : thread.unread_for_admin,
                   }
@@ -129,7 +229,7 @@ function AdminPage() {
             ),
           );
 
-          if (activeIdRef.current === incoming.conversation_id) {
+          if (isViewingConversation) {
             setMessages((current) =>
               current.some((message) => message.id === incoming.id)
                 ? current
@@ -151,6 +251,18 @@ function AdminPage() {
           }
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "messages" },
+        (payload) => {
+          const deletedId = (payload.old as Partial<ChatMessage>).id;
+          if (deletedId) setMessages((current) => current.filter((message) => message.id !== deletedId));
+          void loadThreads();
+        },
+      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "profiles" }, () => {
+        void loadRegisteredUsers();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
         void loadThreads();
       })
@@ -159,10 +271,10 @@ function AdminPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [loadThreads]);
+  }, [loadThreads, loadRegisteredUsers]);
 
   useEffect(() => {
-    if (!activeId) {
+    if (!activeId || activeSection !== "chat") {
       setMessages([]);
       return;
     }
@@ -200,7 +312,7 @@ function AdminPage() {
     return () => {
       active = false;
     };
-  }, [activeId]);
+  }, [activeId, activeSection]);
 
   useEffect(() => {
     endOfMessages.current?.scrollIntoView({ behavior: "smooth" });
@@ -208,13 +320,19 @@ function AdminPage() {
 
   function selectThread(id: string) {
     activeIdRef.current = id;
+    setImageFile(null);
     setActiveId(id);
+  }
+
+  function showSection(section: "chat" | "users") {
+    activeSectionRef.current = section;
+    setActiveSection(section);
   }
 
   async function reply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = draft.trim();
-    if (!body || !activeId || sending) return;
+    if ((!body && !imageFile) || !activeId || sending) return;
 
     setSending(true);
     setError(null);
@@ -225,28 +343,56 @@ function AdminPage() {
       return;
     }
 
+    let uploadedPath: string | null = null;
+    try {
+      if (imageFile) {
+        const uploaded = await uploadChatImage(imageFile, activeId);
+        uploadedPath = uploaded.path;
+      }
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Image upload failed. Please try again.");
+      setSending(false);
+      return;
+    }
     const { error: sendError } = await supabase.from("messages").insert({
       conversation_id: activeId,
       sender_id: userData.user.id,
       sender_role: "admin",
-      body,
+      body: uploadedPath ? makeChatImageBody(uploadedPath, body) : body,
     });
     if (sendError) {
+      if (uploadedPath) await removeChatImage(uploadedPath);
       setError("Reply could not be sent. Please try again.");
       setSending(false);
       return;
     }
 
     setDraft("");
+    setImageFile(null);
     setSending(false);
   }
 
+  async function deleteMessage(message: ChatMessage) {
+    if (!window.confirm("Delete this message for both you and the user?")) return;
+    setError(null);
+    const { error: deleteError } = await supabase.from("messages").delete().eq("id", message.id);
+    if (deleteError) {
+      setError("Message could not be deleted. Please try again.");
+      return;
+    }
+    setMessages((current) => current.filter((item) => item.id !== message.id));
+    const imagePath = getChatImagePath(message.body);
+    if (imagePath) await removeChatImage(imagePath);
+    void loadThreads();
+  }
+
   const activeThread = threads.find((thread) => thread.id === activeId);
+  const totalUnread = threads.reduce((count, thread) => count + thread.unread_for_admin, 0);
 
   return (
     <div className="mx-auto w-full max-w-[1500px] pb-24">
       <ScreenHeader
-        title="Admin support"
+        title="Admin dashboard"
         back="/"
         right={
           <button
@@ -261,7 +407,124 @@ function AdminPage() {
         }
       />
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <nav className="mx-4 mt-4 grid grid-cols-2 rounded-lg bg-secondary p-1" role="tablist" aria-label="Admin sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "chat"}
+          onClick={() => showSection("chat")}
+          className={`flex items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors ${activeSection === "chat" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Live Chat
+          {totalUnread > 0 && (
+            <span className="flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground">
+              {totalUnread > 99 ? "99+" : totalUnread}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "users"}
+          onClick={() => showSection("users")}
+          className={`flex items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors ${activeSection === "users" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+        >
+          Registered Users
+          <span className="rounded-full bg-background/50 px-1.5 py-0.5 text-[10px]">{registeredUsers.length}</span>
+        </button>
+      </nav>
+
+      {activeSection === "users" && <section className="surface mx-4 mt-4 overflow-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold">Registered users</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{registeredUsers.length} accounts · dummy USDT balances</p>
+        </div>
+        {userNotice && (
+          <p role="status" className={`border-b border-border px-4 py-2 text-xs ${userNotice.error ? "text-destructive" : "text-up"}`}>
+            {userNotice.text}
+          </p>
+        )}
+        {registeredUsers.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">No registered users found.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {registeredUsers.map((user) => (
+              <div key={user.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{user.display_name || user.phone}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {user.phone} · Serial: {user.serial_num || "—"} · Joined {new Date(user.created_at).toLocaleString()} · Balance {user.usdt.toLocaleString()} USDT
+                  </p>
+                </div>
+                <div className="space-y-2">
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => { event.preventDefault(); void creditUser(user.id); }}
+                >
+                  <input
+                    type="number"
+                    min="0.00000001"
+                    max="1000000000"
+                    step="any"
+                    required
+                    value={creditAmounts[user.id] ?? ""}
+                    onChange={(event) => setCreditAmounts((amounts) => ({ ...amounts, [user.id]: event.target.value }))}
+                    aria-label={`Amount of dummy USDT to send to ${user.phone}`}
+                    placeholder="Amount (USDT)"
+                    className="w-36 rounded-lg bg-secondary px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    disabled={creditingUser === user.id}
+                    className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                  >
+                    {creditingUser === user.id ? "Sending…" : "Send"}
+                  </button>
+                </form>
+                <form
+                  className="grid grid-cols-[1fr_1fr_auto] gap-2"
+                  onSubmit={(event) => { event.preventDefault(); void resetUserPassword(user.id); }}
+                >
+                  <input
+                    type="password"
+                    minLength={8}
+                    maxLength={72}
+                    autoComplete="new-password"
+                    required
+                    value={newPasswords[user.id] ?? ""}
+                    onChange={(event) => setNewPasswords((values) => ({ ...values, [user.id]: event.target.value }))}
+                    aria-label={`New password for ${user.phone}`}
+                    placeholder="New password"
+                    className="min-w-0 rounded-lg bg-secondary px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  />
+                  <input
+                    type="password"
+                    minLength={8}
+                    maxLength={72}
+                    autoComplete="new-password"
+                    required
+                    value={passwordConfirmations[user.id] ?? ""}
+                    onChange={(event) => setPasswordConfirmations((values) => ({ ...values, [user.id]: event.target.value }))}
+                    aria-label={`Confirm new password for ${user.phone}`}
+                    placeholder="Confirm password"
+                    className="min-w-0 rounded-lg bg-secondary px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    disabled={passwordResettingUser === user.id}
+                    className="rounded-lg bg-secondary px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                  >
+                    {passwordResettingUser === user.id ? "Updating…" : "Set password"}
+                  </button>
+                </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>}
+
+      {activeSection === "chat" && <div className="grid gap-4 p-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <section className="surface flex min-h-[65vh] flex-col overflow-hidden">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-semibold">Client conversations</h2>
@@ -329,10 +592,13 @@ function AdminPage() {
                         : "bg-secondary text-secondary-foreground")
                     }
                   >
-                    <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
+                    <ChatMessageContent body={message.body} />
                     <time className="mt-1 block text-right text-[10px] opacity-70">
                       {new Date(message.created_at).toLocaleString()}
                     </time>
+                    <button type="button" onClick={() => void deleteMessage(message)} aria-label="Delete message for both participants" title="Delete for both" className="mt-1 flex items-center gap-1 text-[10px] opacity-70 hover:opacity-100">
+                      <Trash2 className="size-3" /> Delete
+                    </button>
                   </div>
                 </div>
               ))
@@ -342,7 +608,14 @@ function AdminPage() {
 
           {error && <p role="alert" className="mb-2 text-xs text-destructive">{error}</p>}
 
+          {imageFile && (
+            <ChatImageSelection file={imageFile} onRemove={() => setImageFile(null)} />
+          )}
           <form onSubmit={reply} className="mt-3 flex items-end gap-2 border-t border-border pt-3">
+            <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground" aria-label="Attach image">
+              <ImagePlus className="size-4" />
+              <input type="file" accept="image/*" className="sr-only" disabled={!activeThread || messagesLoading || sending} onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />
+            </label>
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -361,7 +634,7 @@ function AdminPage() {
             />
             <button
               type="submit"
-              disabled={!activeThread || !draft.trim() || sending}
+              disabled={!activeThread || (!draft.trim() && !imageFile) || sending}
               aria-label="Send reply"
               className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-opacity disabled:opacity-50"
             >
@@ -369,7 +642,7 @@ function AdminPage() {
             </button>
           </form>
         </section>
-      </div>
+      </div>}
 
       <BottomNav />
     </div>
