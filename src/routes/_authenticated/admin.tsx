@@ -5,13 +5,14 @@ import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
-import { setRegisteredUserPassword } from "@/lib/admin-user.functions";
+import { setRegisteredUserBalance, setRegisteredUserPassword } from "@/lib/admin-user.functions";
 import { ChatImageSelection, ChatMessageContent, getChatImagePath, getChatMessagePreview, makeChatImageBody, removeChatImage, uploadChatImage } from "@/components/chat/ChatMessageContent";
 
 type ChatMessage = Database["public"]["Tables"]["messages"]["Row"];
 type Conversation = Database["public"]["Tables"]["conversations"]["Row"];
 type AdminThread = Conversation & { phone: string; preview: string };
-type RegisteredUser = Pick<Database["public"]["Tables"]["profiles"]["Row"], "id" | "phone" | "serial_num" | "created_at" | "display_name"> & { usdt: number };
+type RegisteredUser = Pick<Database["public"]["Tables"]["profiles"]["Row"], "id" | "phone" | "serial_num" | "created_at" | "display_name"> & { usdt: number; futures_usdt: number };
+type ProfitHistory = Database["public"]["Tables"]["profit_history"]["Row"];
 
 export const Route = createFileRoute("/_authenticated/admin")({
   beforeLoad: async () => {
@@ -46,8 +47,15 @@ function AdminPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
+  const [profitHistory, setProfitHistory] = useState<ProfitHistory[]>([]);
+  const [profitAmounts, setProfitAmounts] = useState<Record<string, string>>({});
+  const [profitModes, setProfitModes] = useState<Record<string, "fixed" | "percentage">>({});
+  const [profitAccounts, setProfitAccounts] = useState<Record<string, "Spot" | "Futures">>({});
+  const [sendingProfitUser, setSendingProfitUser] = useState<string | null>(null);
   const [creditAmounts, setCreditAmounts] = useState<Record<string, string>>({});
   const [creditingUser, setCreditingUser] = useState<string | null>(null);
+  const [setAmounts, setSetAmounts] = useState<Record<string, string>>({});
+  const [settingBalanceUser, setSettingBalanceUser] = useState<string | null>(null);
   const [newPasswords, setNewPasswords] = useState<Record<string, string>>({});
   const [passwordConfirmations, setPasswordConfirmations] = useState<Record<string, string>>({});
   const [passwordResettingUser, setPasswordResettingUser] = useState<string | null>(null);
@@ -76,7 +84,7 @@ function AdminPage() {
     for (let offset = 0; ; offset += 500) {
       const { data: page, error: balancesError } = await supabase
         .from("user_balances")
-        .select("user_id, usdt, updated_at")
+        .select("user_id, usdt, futures_usdt, updated_at")
         .range(offset, offset + 499);
       if (balancesError) {
         setUserNotice({ text: "Could not load account balances.", error: true });
@@ -85,11 +93,72 @@ function AdminPage() {
       balances.push(...(page ?? []));
       if ((page?.length ?? 0) < 500) break;
     }
-    const balanceByUser = new Map(balances.map((balance) => [balance.user_id, balance.usdt]));
+    const balanceByUser = new Map(balances.map((balance) => [balance.user_id, balance]));
     setRegisteredUsers(profiles.map(({ id, phone, serial_num, created_at, display_name }) => ({
-      id, phone, serial_num, created_at, display_name, usdt: balanceByUser.get(id) ?? 0,
+      id, phone, serial_num, created_at, display_name,
+      usdt: balanceByUser.get(id)?.usdt ?? 0,
+      futures_usdt: balanceByUser.get(id)?.futures_usdt ?? 0,
     })));
   }, []);
+
+  const loadProfitHistory = useCallback(async () => {
+    const { data, error: historyError } = await supabase
+      .from("profit_history")
+      .select("id, user_id, admin_user_id, account, amount, percentage, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (historyError) {
+      setUserNotice({ text: "Could not load profit history.", error: true });
+      return;
+    }
+    setProfitHistory(data ?? []);
+  }, []);
+
+  async function sendProfit(user: RegisteredUser) {
+    const raw = Number(profitAmounts[user.id]);
+    const mode = profitModes[user.id] ?? "fixed";
+    const account = profitAccounts[user.id] ?? "Spot";
+    const percentage = mode === "percentage" ? raw : null;
+    const amount = mode === "fixed" ? raw : null;
+    const relevantBalance = account === "Spot" ? user.usdt : user.futures_usdt;
+    if (!Number.isFinite(raw) || raw <= 0 || (mode === "fixed" && raw > 1000000000) || (mode === "percentage" && raw > 10000)) {
+      setUserNotice({ text: mode === "fixed" ? "Enter a fixed profit from 0 to 1000000000 USDT." : "Enter a percentage greater than 0 and at most 10000%.", error: true });
+      return;
+    }
+    if (mode === "percentage" && relevantBalance <= 0) {
+      setUserNotice({ text: `Cannot calculate a percentage profit: this user's ${account} balance is zero.`, error: true });
+      return;
+    }
+    const preview = mode === "percentage" ? relevantBalance * raw / 100 : raw;
+    const confirmed = window.confirm(
+      `Send ${preview.toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT profit to ${user.display_name || user.phone}'s ${account} balance${percentage === null ? "" : ` (${percentage}%)`}?`,
+    );
+    if (!confirmed) return;
+
+    setSendingProfitUser(user.id);
+    setUserNotice(null);
+    try {
+      const { data, error: profitError } = await supabase.rpc("admin_send_profit", {
+        _user_id: user.id,
+        _account: account,
+        _amount: amount,
+        _percentage: percentage,
+      });
+      if (profitError) throw new Error(profitError.message || "Profit could not be sent.");
+      const result = data as { amount: number; balance: number };
+      setRegisteredUsers((users) => users.map((item) => item.id !== user.id ? item : {
+        ...item,
+        [account === "Spot" ? "usdt" : "futures_usdt"]: result.balance,
+      }));
+      setProfitAmounts((values) => ({ ...values, [user.id]: "" }));
+      setUserNotice({ text: `Added ${Number(result.amount).toLocaleString()} USDT profit to ${user.phone}'s ${account} balance.`, error: false });
+      await Promise.all([loadRegisteredUsers(), loadProfitHistory()]);
+    } catch (profitError) {
+      setUserNotice({ text: profitError instanceof Error ? profitError.message : "Profit could not be sent.", error: true });
+    } finally {
+      setSendingProfitUser(null);
+    }
+  }
 
   async function creditUser(userId: string) {
     const amount = Number(creditAmounts[userId]);
@@ -111,6 +180,28 @@ function AdminPage() {
       setUserNotice({ text: `Dummy USDT sent. Updated balance: ${newBalance.toLocaleString()} USDT.`, error: false });
     }
     setCreditingUser(null);
+  }
+
+  async function setUserBalance(userId: string) {
+    const amount = Number(setAmounts[userId]);
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1000000000) {
+      setUserNotice({ text: "Enter a balance from 0 to 1000000000 USDT.", error: true });
+      return;
+    }
+    setSettingBalanceUser(userId);
+    setUserNotice(null);
+    try {
+      const newBalance = await setRegisteredUserBalance({ data: { userId, amount } });
+      setRegisteredUsers((users) => users.map((user) => user.id === userId ? { ...user, usdt: newBalance } : user));
+      setSetAmounts((amounts) => ({ ...amounts, [userId]: "" }));
+      setUserNotice({ text: `Balance updated to ${newBalance.toLocaleString()} USDT.`, error: false });
+    } catch (balanceError) {
+      setUserNotice({
+        text: balanceError instanceof Error ? balanceError.message : "Balance could not be updated.",
+        error: true,
+      });
+    }
+    setSettingBalanceUser(null);
   }
 
   async function resetUserPassword(userId: string) {
@@ -204,6 +295,7 @@ function AdminPage() {
   useEffect(() => {
     void loadThreads();
     void loadRegisteredUsers();
+    void loadProfitHistory();
     const channel = supabase
       .channel("admin-support-inbox")
       .on(
@@ -271,7 +363,7 @@ function AdminPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [loadThreads, loadRegisteredUsers]);
+  }, [loadThreads, loadRegisteredUsers, loadProfitHistory]);
 
   useEffect(() => {
     if (!activeId || activeSection !== "chat") {
@@ -453,7 +545,7 @@ function AdminPage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{user.display_name || user.phone}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {user.phone} · Serial: {user.serial_num || "—"} · Joined {new Date(user.created_at).toLocaleString()} · Balance {user.usdt.toLocaleString()} USDT
+                    {user.phone} · Serial: {user.serial_num || "—"} · Joined {new Date(user.created_at).toLocaleString()} · Spot {user.usdt.toLocaleString()} USDT · Futures {user.futures_usdt.toLocaleString()} USDT
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -479,6 +571,72 @@ function AdminPage() {
                     className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
                   >
                     {creditingUser === user.id ? "Sending…" : "Send"}
+                  </button>
+                </form>
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => { event.preventDefault(); void setUserBalance(user.id); }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000000000"
+                    step="any"
+                    required
+                    value={setAmounts[user.id] ?? ""}
+                    onChange={(event) => setSetAmounts((amounts) => ({ ...amounts, [user.id]: event.target.value }))}
+                    aria-label={`Set exact USDT balance for ${user.phone}`}
+                    placeholder="New balance (USDT)"
+                    className="w-36 rounded-lg bg-secondary px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    disabled={settingBalanceUser === user.id}
+                    className="rounded-lg bg-secondary px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                  >
+                    {settingBalanceUser === user.id ? "Saving…" : "Set balance"}
+                  </button>
+                </form>
+                <form
+                  className="flex flex-wrap gap-2"
+                  onSubmit={(event) => { event.preventDefault(); void sendProfit(user); }}
+                >
+                  <select
+                    value={profitAccounts[user.id] ?? "Spot"}
+                    onChange={(event) => setProfitAccounts((values) => ({ ...values, [user.id]: event.target.value as "Spot" | "Futures" }))}
+                    aria-label={`Profit account for ${user.phone}`}
+                    className="rounded-lg bg-secondary px-2 py-2 text-sm outline-none"
+                  >
+                    <option value="Spot">Spot</option>
+                    <option value="Futures">Futures</option>
+                  </select>
+                  <select
+                    value={profitModes[user.id] ?? "fixed"}
+                    onChange={(event) => setProfitModes((values) => ({ ...values, [user.id]: event.target.value as "fixed" | "percentage" }))}
+                    aria-label={`Profit type for ${user.phone}`}
+                    className="rounded-lg bg-secondary px-2 py-2 text-sm outline-none"
+                  >
+                    <option value="fixed">Fixed USDT</option>
+                    <option value="percentage">Percent</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0.00000001"
+                    max={profitModes[user.id] === "percentage" ? 10000 : 1000000000}
+                    step="any"
+                    required
+                    value={profitAmounts[user.id] ?? ""}
+                    onChange={(event) => setProfitAmounts((values) => ({ ...values, [user.id]: event.target.value }))}
+                    aria-label={`Profit amount or percentage for ${user.phone}`}
+                    placeholder={profitModes[user.id] === "percentage" ? "Profit (%)" : "Profit (USDT)"}
+                    className="w-32 rounded-lg bg-secondary px-3 py-2 text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sendingProfitUser === user.id}
+                    className="rounded-lg bg-up px-3 py-2 text-sm font-semibold text-background disabled:opacity-60"
+                  >
+                    {sendingProfitUser === user.id ? "Sending…" : "Send Profit"}
                   </button>
                 </form>
                 <form
@@ -522,6 +680,28 @@ function AdminPage() {
             ))}
           </div>
         )}
+        <div className="border-t border-border">
+          <div className="px-4 py-3">
+            <h3 className="text-sm font-semibold">Profit history</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Latest {profitHistory.length} profit credits</p>
+          </div>
+          {profitHistory.length === 0 ? (
+            <p className="px-4 pb-4 text-sm text-muted-foreground">No profit sent yet.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {profitHistory.map((entry) => {
+                const user = registeredUsers.find((item) => item.id === entry.user_id);
+                return (
+                  <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs">
+                    <span>{user?.display_name || user?.phone || "Registered user"} · {entry.account}</span>
+                    <span className="num text-up">+{Number(entry.amount).toLocaleString()} USDT{entry.percentage === null ? "" : ` · ${Number(entry.percentage)}%`}</span>
+                    <time className="text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</time>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>}
 
       {activeSection === "chat" && <div className="grid gap-4 p-4 lg:grid-cols-[360px_minmax(0,1fr)]">

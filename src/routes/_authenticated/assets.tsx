@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Eye, EyeOff, LogOut, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useMarket, fmt } from "@/lib/market";
 import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { supabase } from "@/integrations/supabase/client";
+import { useUsdtBalances } from "@/lib/use-usdt-balances";
 
 export const Route = createFileRoute("/_authenticated/assets")({
   head: () => ({
@@ -28,46 +29,16 @@ function AssetsPage() {
   const [query, setQuery] = useState("");
   const [hideZero, setHideZero] = useState(false);
   const [visible, setVisible] = useState(true);
-  const [usdtBalance, setUsdtBalance] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    let balanceChannel: ReturnType<typeof supabase.channel> | undefined;
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!data.user) return;
-      const { data: balance } = await supabase
-        .from("user_balances")
-        .select("usdt")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-      if (active) setUsdtBalance(balance?.usdt ?? 0);
-      balanceChannel = supabase
-        .channel(`member-balance-${data.user.id}`)
-        .on("postgres_changes", {
-          event: "UPDATE",
-          schema: "public",
-          table: "user_balances",
-          filter: `user_id=eq.${data.user.id}`,
-        }, (payload) => {
-          setUsdtBalance(Number((payload.new as { usdt: number }).usdt) || 0);
-        })
-        .subscribe();
-    });
-    return () => {
-      active = false;
-      if (balanceChannel) void supabase.removeChannel(balanceChannel);
-    };
-  }, []);
+  const balances = useUsdtBalances();
 
   const rows = useMemo(() => {
-    const factor = wallet === "Funding" ? 1 : 0.11;
     return ASSETS.map((code) => {
       const price = code === "USDT" ? 1 : (tickers[`${code}/USDT`]?.price ?? 0);
-      const available = code === "USDT" ? usdtBalance * factor : 0;
+      const available = code === "USDT" ? (wallet === "Funding" ? balances.spot : balances.futures) : 0;
       const freeze = 0;
       return { code, available, freeze, usd: (available + freeze) * price };
     });
-  }, [tickers, wallet, usdtBalance]);
+  }, [tickers, wallet, balances]);
 
   const filtered = rows
     .filter((r) => r.code.toLowerCase().includes(query.toLowerCase()))

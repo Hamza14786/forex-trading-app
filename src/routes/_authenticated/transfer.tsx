@@ -4,7 +4,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
-import { useUsdtBalance } from "@/lib/use-usdt-balance";
+import { supabase } from "@/integrations/supabase/client";
+import { useUsdtBalances } from "@/lib/use-usdt-balances";
 
 export const Route = createFileRoute("/_authenticated/transfer")({
   head: () => ({
@@ -20,25 +21,75 @@ const CURRENCIES = ["USDT", "BTC", "ETH", "XAUT", "BCH", "LTC", "ADA", "TRX", "L
 const ACCOUNTS = ["Spot", "Futures"] as const;
 
 function TransferPage() {
-  const usdtBalance = useUsdtBalance();
+  const balances = useUsdtBalances();
   const [from, setFrom] = useState<(typeof ACCOUNTS)[number]>("Spot");
   const [to, setTo] = useState<(typeof ACCOUNTS)[number]>("Futures");
   const [currency, setCurrency] = useState("USDT");
   const [amount, setAmount] = useState("");
-  const available = currency === "USDT" ? usdtBalance * (from === "Spot" ? 1 : 0.11) : 0;
+  const available = currency === "USDT" ? balances[from.toLowerCase() as "spot" | "futures"] : 0;
+  const [transferring, setTransferring] = useState(false);
 
   function swapAccounts() {
     setFrom(to);
     setTo(from);
   }
 
-  function confirmTransfer() {
+  async function confirmTransfer() {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0 || value > available) {
       toast.error("Enter an amount within the available balance.");
       return;
     }
-    toast.info("Transfers are simulated in this demo. No balance was changed.");
+    setTransferring(true);
+    try {
+      const { data: { session }, error: sessionError } = await withTimeout(
+        supabase.auth.getSession(),
+        8000,
+        "Session check timed out. Please try again.",
+      );
+      if (sessionError) throw new Error(`Could not read your login session: ${sessionError.message}`);
+      if (!session?.user.id || !session.access_token) {
+        throw new Error("Your session has expired. Sign in again and retry the transfer.");
+      }
+
+      const controller = new AbortController();
+      let requestTimedOut = false;
+      const timeout = window.setTimeout(() => {
+        requestTimedOut = true;
+        controller.abort();
+      }, 20000);
+      let error;
+      try {
+        ({ error } = await supabase.rpc("transfer_usdt_between_accounts", {
+          _from_account: from,
+          _to_account: to,
+          _amount: value,
+        }).abortSignal(controller.signal));
+      } finally {
+        window.clearTimeout(timeout);
+      }
+
+      if (error) {
+        if (requestTimedOut) throw new Error("Transfer request timed out. Please retry.");
+        if (error.code === "PGRST202") {
+          throw new Error("Transfer RPC is missing in Supabase. Apply migration 0006 and retry.");
+        }
+        if (error.message.includes("Insufficient")) {
+          throw new Error("Insufficient available balance in the selected source account.");
+        }
+        throw new Error(`Transfer failed: ${error.message}`);
+      }
+
+      setAmount("");
+      toast.success(`Transferred ${value} USDT from ${from} to ${to}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Transfer failed. Please try again.";
+      toast.error(error instanceof Error && (error.name === "AbortError" || message.toLowerCase().includes("aborted"))
+        ? "Transfer request timed out. Please retry."
+        : message);
+    } finally {
+      setTransferring(false);
+    }
   }
 
   return (
@@ -129,17 +180,33 @@ function TransferPage() {
         <button
           type="button"
           onClick={confirmTransfer}
-          disabled={from === to}
+          disabled={from === to || transferring}
           className="h-12 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          Confirm
+          {transferring ? "Transferring…" : "Confirm"}
         </button>
         <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-          Transfers between Spot and Futures are for demonstration only. Confirming will not move funds.
+          Transfers between Spot and Futures update your USDT available balance instantly.
         </p>
       </div>
 
       <BottomNav />
     </div>
   );
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }

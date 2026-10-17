@@ -36,6 +36,41 @@
       "when": 1790426983428,
       "tag": "0004_chat_image_and_message_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790426983429,
+      "tag": "0005_admin_set_user_balance",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790426983430,
+      "tag": "0006_spot_futures_transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790426983431,
+      "tag": "0007_admin_send_profit",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790426983432,
+      "tag": "0008_fix_admin_profit_auth_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790426983433,
+      "tag": "0009_increment_only_selected_profit_balance",
+      "breakpoints": true
     }
   ]
 }

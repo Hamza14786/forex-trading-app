@@ -32,7 +32,6 @@ function SpotPage() {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [percent, setPercent] = useState(0);
   const [balance, setBalance] = useState(0);
-
   useEffect(() => {
     let active = true;
     let balanceChannel: ReturnType<typeof supabase.channel> | undefined;

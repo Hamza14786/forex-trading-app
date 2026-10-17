@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      profit_history: {
+        Row: {
+          id: string
+          user_id: string
+          admin_user_id: string
+          account: string
+          amount: number
+          percentage: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          admin_user_id: string
+          account: string
+          amount: number
+          percentage?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          admin_user_id?: string
+          account?: string
+          amount?: number
+          percentage?: number | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           created_at: string
@@ -122,9 +152,9 @@ export type Database = {
         Relationships: []
       }
       user_balances: {
-        Row: { updated_at: string; user_id: string; usdt: number }
-        Insert: { updated_at?: string; user_id: string; usdt?: number }
-        Update: { updated_at?: string; user_id?: string; usdt?: number }
+        Row: { updated_at: string; user_id: string; usdt: number; futures_usdt: number }
+        Insert: { updated_at?: string; user_id: string; usdt?: number; futures_usdt?: number }
+        Update: { updated_at?: string; user_id?: string; usdt?: number; futures_usdt?: number }
         Relationships: []
       }
     }
@@ -142,6 +172,18 @@ export type Database = {
       admin_credit_user: {
         Args: { _amount: number; _user_id: string }
         Returns: number
+      }
+      admin_set_user_balance: {
+        Args: { _amount: number; _user_id: string }
+        Returns: number
+      }
+      transfer_usdt_between_accounts: {
+        Args: { _amount: number; _from_account: string; _to_account: string }
+        Returns: undefined
+      }
+      admin_send_profit: {
+        Args: { _account: string; _amount?: number | null; _percentage?: number | null; _user_id: string }
+        Returns: Json
       }
     }
     Enums: {

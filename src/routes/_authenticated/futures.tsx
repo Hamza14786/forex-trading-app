@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
+import { LoaderCircle } from "lucide-react";
 import { useMarket, fmt } from "@/lib/market";
 import { OrderBook } from "@/components/OrderBook";
 import { BottomNav } from "@/components/BottomNav";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { useUsdtBalances } from "@/lib/use-usdt-balances";
 
 export const Route = createFileRoute("/_authenticated/futures")({
   head: () => ({
@@ -22,13 +23,21 @@ const LEVERAGE = [5, 10, 20, 50, 100];
 
 function FuturesPage() {
   const { tickers, list } = useMarket();
+  const balances = useUsdtBalances();
   const [symbol, setSymbol] = useState("XAUT/USDT");
   const [tab, setTab] = useState<"Open position" | "Delegation">("Open position");
   const [leverage, setLeverage] = useState(20);
   const [percent, setPercent] = useState(25);
+  const [loadingAction, setLoadingAction] = useState<"buy" | "sell" | null>(null);
+
+  function handleAction(action: "buy" | "sell") {
+    if (loadingAction) return;
+    setLoadingAction(action);
+    window.setTimeout(() => setLoadingAction(null), 2000);
+  }
 
   const ticker = tickers[symbol] ?? tickers["XAUT/USDT"]!;
-  const equity = 1386.32;
+  const equity = balances.futures;
   const margin = (equity * percent) / 100;
   const pnl = (ticker.price - ticker.prevPrice) * leverage * 12;
   const riskRate = Math.min(Math.abs(pnl) / Math.max(equity, 1) * 100, 99.9);
@@ -125,20 +134,30 @@ function FuturesPage() {
 
               <div className="grid gap-2">
                 <button
-                  onClick={() => toast.success(`Long ${symbol} at ${fmt(ticker.price, ticker.decimals)} (demo)`)}
-                  className="rounded-lg bg-up py-3 text-sm font-semibold text-background"
+                  onClick={() => handleAction("buy")}
+                  disabled={loadingAction !== null}
+                  className="rounded-lg bg-up py-3 text-sm font-semibold text-background disabled:cursor-wait disabled:opacity-75"
                 >
-                  Buy (bullish)
+                  {loadingAction === "buy" ? (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <LoaderCircle className="size-4 animate-spin" /> Loading...
+                    </span>
+                  ) : "Buy (bullish)"}
                 </button>
                 <button
-                  onClick={() => toast.success(`Short ${symbol} at ${fmt(ticker.price, ticker.decimals)} (demo)`)}
-                  className="rounded-lg bg-down py-3 text-sm font-semibold text-background"
+                  onClick={() => handleAction("sell")}
+                  disabled={loadingAction !== null}
+                  className="rounded-lg bg-down py-3 text-sm font-semibold text-background disabled:cursor-wait disabled:opacity-75"
                 >
-                  Sell (bearish)
+                  {loadingAction === "sell" ? (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <LoaderCircle className="size-4 animate-spin" /> Loading...
+                    </span>
+                  ) : "Sell (bearish)"}
                 </button>
               </div>
 
-              <p className="num text-xs text-muted-foreground">Available {fmt(equity - margin, 2)} USDT</p>
+              <p className="num text-xs text-muted-foreground">Available {fmt(equity, 2)} USDT</p>
             </div>
           </div>
 

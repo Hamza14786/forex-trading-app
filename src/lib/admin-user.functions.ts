@@ -41,3 +41,37 @@ export const setRegisteredUserPassword = createServerFn({ method: "POST" })
 
     return { success: true };
   });
+
+export const setRegisteredUserBalance = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { userId: string; amount: number }) => {
+    if (!/^[0-9a-f-]{36}$/i.test(input.userId)) {
+      throw new Error("Select a valid registered user.");
+    }
+    if (!Number.isFinite(input.amount) || input.amount < 0 || input.amount > 1000000000) {
+      throw new Error("Balance must be between zero and 1000000000 USDT.");
+    }
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { data: isAdmin, error: roleError } = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (roleError || !isAdmin) {
+      throw new Error("Admin access required.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: balance, error: balanceError } = await supabaseAdmin
+      .from("user_balances")
+      .upsert({ user_id: data.userId, usdt: data.amount, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+      .select("usdt")
+      .single();
+    if (balanceError) {
+      console.error("Could not set registered user's balance:", balanceError);
+      throw new Error("Balance could not be updated. Please try again.");
+    }
+
+    return balance.usdt;
+  });
